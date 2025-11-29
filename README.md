@@ -5,3 +5,4 @@ A new implementation of Decision Transformer, using Gymnasium and Minari.
 '''bash
 cd data
 python download_datasets.py
+'''
