@@ -1,0 +1,11 @@
+gymnasium==1.2.2
+ImageIO==2.37.2
+minari==0.5.3
+mujoco==3.3.7
+numpy==2.3.5
+torch==2.8.0+cu126
+torchaudio==2.8.0+cu126
+torchvision==0.23.0+cu126
+tqdm==4.67.1
+transformers==4.57.3
+wandb==0.23.0
