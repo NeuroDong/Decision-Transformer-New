@@ -26,3 +26,6 @@ python experiment.py
 | - | - | - | - |
 | Medium | Hopper | 78.89 $\pm$ 28.36 | 67.60 $\pm$ 01.00 |
 
+# Show
+
+![iter10_rtg3600](./iter10_rtg3600.gif)
