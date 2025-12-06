@@ -1,6 +1,8 @@
 import numpy as np
 import torch
 import gymnasium as gym
+import os
+
 
 def evaluate_episode(
         env,
@@ -75,6 +77,9 @@ def evaluate_episode_rtg(
         device='cuda',
         target_return=None,
         mode='normal',
+        render_video=False,
+        video_path='videos/',
+        iter_num=0,
     ):
 
     model.eval()
@@ -82,6 +87,13 @@ def evaluate_episode_rtg(
 
     state_mean = torch.from_numpy(state_mean).to(device=device)
     state_std = torch.from_numpy(state_std).to(device=device)
+
+    if render_video:
+        # Ensure the directory exists
+        os.makedirs(video_path, exist_ok=True)
+        # Wrap the environment to record video
+        env = gym.wrappers.RecordVideo(env, video_folder=video_path, name_prefix=f'iter_{iter_num}_rtg_{target_return}', episode_trigger=lambda x: True)
+
 
     state, _ = env.reset()
     if mode == 'noise':
@@ -105,6 +117,9 @@ def evaluate_episode_rtg(
         # add padding
         actions = torch.cat([actions, torch.zeros((1, act_dim), device=device)], dim=0)
         rewards = torch.cat([rewards, torch.zeros(1, device=device)])
+
+        if render_video:
+            env.render()
 
         action = model.get_action(
             (states.to(dtype=torch.float32) - state_mean) / state_std,
@@ -138,5 +153,25 @@ def evaluate_episode_rtg(
 
         if done:
             break
+    
+    if render_video:
+        env.close() # This will save the video
 
     return episode_return, episode_length
+
+
+def get_normalized_score(env_name, score):
+    env_name = env_name.lower()
+    if 'hopper' in env_name:
+        random_score = -20.272305
+        expert_score = 3234.3
+    elif 'walker2d' in env_name:
+        random_score = 1.629008
+        expert_score = 4592.3
+    elif 'halfcheetah' in env_name:
+        random_score = -280.178993
+        expert_score = 12135.0
+    else:
+        raise NotImplementedError("Normalized score not implemented for this environment")
+
+    return (score - random_score) / (expert_score - random_score) * 100

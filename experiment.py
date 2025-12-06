@@ -7,9 +7,15 @@ import argparse
 import pickle
 import random
 import sys
+import os
+
+# Add this to solve black screen issue in video recording on headless servers
+if os.environ.get('MUJOCO_GL') is None:
+    os.environ['MUJOCO_GL'] = 'egl'
+
 from tqdm import tqdm
 
-from decision_transformer.evaluation.evaluate_episodes import evaluate_episode, evaluate_episode_rtg
+from decision_transformer.evaluation.evaluate_episodes import evaluate_episode, evaluate_episode_rtg, get_normalized_score
 from decision_transformer.models.decision_transformer import DecisionTransformer
 from decision_transformer.models.mlp_bc import MLPBCModel
 from decision_transformer.training.act_trainer import ActTrainer
@@ -30,6 +36,7 @@ def experiment(
 ):
     device = variant.get('device', 'cuda')
     log_to_wandb = variant.get('log_to_wandb', False)
+    render_video = variant.get('render_video', False)
 
     env_name, dataset = variant['env'], variant['dataset']
     model_type = variant['model_type']
@@ -174,22 +181,49 @@ def experiment(
     def eval_episodes(target_rew):
         def fn(model):
             returns, lengths = [], []
-            for _ in tqdm(range(num_eval_episodes), desc=f"Eval Episode (rtg={target_rew:.1f})", dynamic_ncols=True):
+            for num_iter in tqdm(range(num_eval_episodes), desc=f"Eval Episode (rtg={target_rew:.1f})", dynamic_ncols=True):
                 with torch.no_grad():
                     if model_type == 'dt':
-                        ret, length = evaluate_episode_rtg(
-                            env,
-                            state_dim,
-                            act_dim,
-                            model,
-                            max_ep_len=max_ep_len,
-                            scale=scale,
-                            target_return=target_rew/scale,
-                            mode=mode,
-                            state_mean=state_mean,
-                            state_std=state_std,
-                            device=device,
-                        )
+                        # Video recording logic
+                        if render_video and num_iter==0:
+                            # Create a new environment for each evaluation episode
+                            render_mode = 'rgb_array'
+                            if env_name == 'reacher2d':
+                                from decision_transformer.envs.reacher_2d import Reacher2dEnv
+                                eval_env = Reacher2dEnv()
+                            else:
+                                eval_env = gym.make(f'{env_name.capitalize()}-v5', render_mode=render_mode)
+
+                            video_path = os.path.join(wandb.run.dir, 'videos') if log_to_wandb else 'videos'
+                            ret, length = evaluate_episode_rtg(
+                                eval_env,
+                                state_dim,
+                                act_dim,
+                                trainer.model,
+                                max_ep_len=max_ep_len,
+                                scale=scale,
+                                target_return=target_rew/scale,
+                                state_mean=state_mean,
+                                state_std=state_std,
+                                device=device,
+                                render_video=render_video,
+                                video_path=video_path,
+                                iter_num=iter+1,
+                            )
+                        else:
+                            ret, length = evaluate_episode_rtg(
+                                env,
+                                state_dim,
+                                act_dim,
+                                model,
+                                max_ep_len=max_ep_len,
+                                scale=scale,
+                                target_return=target_rew/scale,
+                                mode=mode,
+                                state_mean=state_mean,
+                                state_std=state_std,
+                                device=device,
+                            )
                     else:
                         ret, length = evaluate_episode(
                             env,
@@ -205,11 +239,15 @@ def experiment(
                         )
                 returns.append(ret)
                 lengths.append(length)
+            
+            normalized_scores = [get_normalized_score(env_name, r) for r in returns]
             return {
                 f'target_{target_rew}_return_mean': np.mean(returns),
                 f'target_{target_rew}_return_std': np.std(returns),
                 f'target_{target_rew}_length_mean': np.mean(lengths),
                 f'target_{target_rew}_length_std': np.std(lengths),
+                f'target_{target_rew}_normalized_score_mean': np.mean(normalized_scores),
+                f'target_{target_rew}_normalized_score_std': np.std(normalized_scores),
             }
         return fn
 
@@ -309,8 +347,10 @@ if __name__ == '__main__':
     parser.add_argument('--max_iters', type=int, default=10)
     parser.add_argument('--num_steps_per_iter', type=int, default=10000)
     parser.add_argument('--device', type=str, default='cuda')
-    parser.add_argument('--log_to_wandb', '-w', type=bool, default=True)
-    
+    parser.add_argument('--log_to_wandb', '-w', action='store_true', default=True)
+    parser.add_argument('--render_video', action='store_true', default=True)
+    parser.add_argument('--video_interval', type=int, default=1)
+
     args = parser.parse_args()
 
     experiment('gym-experiment', variant=vars(args))
